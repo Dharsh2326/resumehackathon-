@@ -335,7 +335,7 @@ if page == "🏠 Home":
                             "jd": st.session_state.current_files["jd"]
                         }
                         
-                        response = requests.post("http://127.0.0.1:5000/match", files=files)
+                        response = requests.post("https://resume-relevance-check-hackthon.onrender.com/match", files=files)
                         
                         if response.status_code == 200:
                             result = response.json()
