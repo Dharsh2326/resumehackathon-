@@ -1,6 +1,7 @@
  # Automated Resume Relevance Check System 
 
 ## 📄 Problem Statement
+
 At Innomatics Research Labs, resume evaluation is currently **manual, inconsistent, and time-consuming**. Every week, the placement team across Hyderabad, Bangalore, Pune, and Delhi NCR receives 18–20 job requirements, with each posting attracting thousands of applications.  
 Currently, recruiters and mentors manually review resumes, matching them against job descriptions (JD). This leads to:  
 - Delays in shortlisting candidates.  
@@ -21,7 +22,7 @@ With hiring companies expecting fast and high-quality shortlists, there is a **p
 - **Frontend:** Streamlit  
 - **Backend:** Flask (Deployed on Render)  
 - **Language:** Python
-- **DataBase:** SQlite
+- **DataBase:** SQLite
 - **Deployment:** Streamlit Cloud (frontend), Render (backend)  
 
 ---
@@ -79,37 +80,53 @@ This project is designed as a **web-based Resume Relevance Checker** with a fron
 ---
 
 ## ⚙️ Installation & Setup
-1. **Clone the repository**:
-bash
-git clone https://github.com/YOUR_USERNAME/resume-relevance-check.git
-cd resume-relevance-check
-Install dependencies:
+- **Database:** SQLite
+
+# ⚙️ Installation & Setup
+
+#### Clone the repository
+git clone https://github.com/Dharsh2326/resumehackathon.git
+
+#### Go into the cloned folder
+cd resumehackathon
+
+#### Install dependencies
 pip install -r requirements.txt
-Run frontend locally:
+
+#### Run frontend locally
 cd frontend
 streamlit run app.py
-Open browser and navigate to the app (default: http://localhost:8501)
----
 
-🎯 Usage
+#### Open browser at
+http://localhost:8501
 
-Upload a resume (PDF, DOCX, TXT).
+## 🎯 Usage
 
-Upload a job description (PDF, DOCX, TXT).
+1. **Upload a Resume**  
+   - Supported formats: PDF, DOCX, TXT.  
+   - Click the **Upload Resume** button and select your file.  
 
-Click Analyze Resume Match.
+2. **Upload a Job Description**  
+   - Supported formats: PDF, DOCX, TXT.  
+   - Click the **Upload Job Description** button and select the file.  
 
-View results:
+3. **Analyze Resume Match**  
+   - Click the **Analyze** button.  
+   - The system will send your files to the backend API for processing.  
 
-Score
+4. **View Results**  
+   - **Resume Relevance Score** (percentage)  
+   - **Matched Skills** – skills from the JD found in the resume  
+   - **Missing Skills** – skills required but not found in the resume  
+   - **Improvement Suggestions** – actionable tips for the candidate  
+   - **Verdict** – e.g., Excellent, Good, Average, Poor  
 
-Matched / Missing Skills
+5. **Dashboard & History**  
+   - Track multiple candidates’ analysis history.  
+   - See top-performing candidates and score trends over time.
 
-Improvement Suggestions
-
-Access Dashboard to see history, top candidates, and score trends.
 ---
 ## 🚀 Live Demo
 - **Frontend (Streamlit App):** https://5z8xusbxc99z6gp9hdtkmp.streamlit.app/
 - **Backend (Render API):** https://resume-relevance-check-hackthon.onrender.com/
-
+---
