@@ -5,6 +5,35 @@ from datetime import datetime
 import json
 import time
 
+# Try to import database manager with fallback
+try:
+    from backend.database import db_manager
+    DATABASE_AVAILABLE = True
+except ImportError:
+    # Create a mock database manager if database.py is not available
+    class MockDBManager:
+        def get_analysis_history(self, limit=100):
+            return []
+        
+        def save_analysis_result(self, result):
+            pass
+        
+        def get_analysis_statistics(self):
+            return {
+                'total_analyses': 0,
+                'avg_score': 0,
+                'max_score': 0,
+                'min_score': 0,
+                'score_distribution': {'excellent': 0, 'good': 0, 'average': 0, 'poor': 0}
+            }
+        
+        def clear_all_data(self, confirm=False):
+            return True
+    
+    db_manager = MockDBManager()
+    DATABASE_AVAILABLE = False
+    print("Warning: Database not available, using session-only storage")
+
 st.set_page_config(page_title="Resume Relevance Check", layout="wide", initial_sidebar_state="expanded")
 
 # ===========================
@@ -130,7 +159,16 @@ st.markdown("""
 # ===========================
 def initialize_session_state():
     if "results" not in st.session_state:
-        st.session_state.results = []
+        # Load existing results from database on app startup if available
+        if DATABASE_AVAILABLE:
+            try:
+                st.session_state.results = db_manager.get_analysis_history(limit=100)
+            except Exception as e:
+                print(f"Error loading from database: {e}")
+                st.session_state.results = []
+        else:
+            st.session_state.results = []
+    
     if "detail_result" not in st.session_state:
         st.session_state.detail_result = None
     if "analysis_done" not in st.session_state:
@@ -168,7 +206,7 @@ def force_reset_file_uploaders():
     st.session_state.current_files = {"resume": None, "jd": None}
 
 def extract_candidate_name_from_filename(filename):
-    """Fallback: Extract candidate name from resume filename"""
+    """Extract candidate name from resume filename"""
     if not filename or filename == "Unknown":
         return "Unknown Candidate"
     
@@ -194,18 +232,26 @@ def extract_candidate_name_from_filename(filename):
     return candidate_name if len(candidate_name) > 0 else "Unknown Candidate"
 
 def save_result_to_history(result):
-    """Save analysis result to session history"""
+    """Save analysis result to session history and database"""
     if result and result not in st.session_state.results:
         result_with_timestamp = result.copy()
         result_with_timestamp["analysis_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Candidate name is now included in the backend response
-        if not result_with_timestamp.get("candidate_name"):
-            # Fallback to filename extraction for legacy results
-            resume_filename = result.get("resume_filename", "Unknown")
-            result_with_timestamp["candidate_name"] = extract_candidate_name_from_filename(resume_filename)
+        # Extract candidate name from resume filename
+        resume_filename = result.get("resume_filename", "Unknown")
+        candidate_name = extract_candidate_name_from_filename(resume_filename)
+        result_with_timestamp["candidate_name"] = candidate_name
         
+        # Add to session state (for current session)
         st.session_state.results.append(result_with_timestamp)
+        
+        # Persist to database if available
+        if DATABASE_AVAILABLE:
+            try:
+                db_manager.save_analysis_result(result_with_timestamp)
+            except Exception as e:
+                st.warning(f"Could not save to database: {e}")
+                print(f"Database save error: {e}")
 
 def get_score_color(score):
     """Get color based on score"""
@@ -224,7 +270,7 @@ def get_score_color(score):
 st.markdown('<div class="title">📄 Resume Relevance Check</div>', unsafe_allow_html=True)
 
 # ===========================
-# Navigation - Removed Detailed Report
+# Navigation
 # ===========================
 page = st.sidebar.radio("Navigate", ["🏠 Home", "📈 Dashboard"], key="navigation")
 
@@ -415,150 +461,194 @@ elif page == "📈 Dashboard":
         # Summary statistics
         df = pd.DataFrame(st.session_state.results)
         
-        # Ensure candidate_name column exists and is properly populated
-        if 'candidate_name' not in df.columns or df['candidate_name'].isna().any():
-            # For existing results without candidate names, try to extract from backend if possible
-            for idx, row in df.iterrows():
-                if pd.isna(row.get('candidate_name')) or row.get('candidate_name') == 'Unknown Candidate':
-                    # Use filename as fallback since we can't re-process the original file
-                    df.at[idx, 'candidate_name'] = extract_candidate_name_from_filename(row.get('resume_filename', 'Unknown'))
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total Analyses", len(df))
-        with col2:
-            avg_score = df['score'].mean()
-            st.metric("Average Score", f"{avg_score:.1f}%")
-        with col3:
-            high_scores = len(df[df['score'] >= 70])
-            st.metric("High Scores", f"{high_scores}")
-        with col4:
-            recent_score = df.iloc[-1]['score'] if not df.empty else 0
-            st.metric("Latest Score", f"{recent_score}%")
-        
-        # Top candidates section
-        st.markdown("### 🏆 Top Performing Candidates")
-        if len(df) >= 3:
-            top_candidates = df.nlargest(3, 'score')[['candidate_name', 'score', 'verdict', 'analysis_time']]
-            
-            cols = st.columns(3)
-            for idx, (_, candidate) in enumerate(top_candidates.iterrows()):
-                with cols[idx]:
-                    rank_emoji = ["🥇", "🥈", "🥉"][idx]
-                    st.markdown(f"""
-                    <div style="
-                        padding: 15px; 
-                        border-radius: 10px; 
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        color: white;
-                        text-align: center;
-                        margin: 5px 0;
-                    ">
-                        <h3>{rank_emoji} Rank {idx + 1}</h3>
-                        <h4>{candidate['candidate_name']}</h4>
-                        <h2>{candidate['score']}%</h2>
-                        <p>{candidate['verdict']}</p>
-                        <small>{candidate['analysis_time']}</small>
-                    </div>
-                    """, unsafe_allow_html=True)
+        # Check if dataframe has required columns
+        if df.empty or 'score' not in df.columns:
+            st.info("No valid analysis data found in history.")
         else:
-            st.info("Need at least 3 analyses to show top candidates")
-        
-        # Results table
-        st.markdown("### 📋 Analysis History")
-        
-        # Prepare display dataframe
-        display_df = df[['analysis_time', 'candidate_name', 'resume_filename', 'score', 'verdict', 'skills_matched', 'total_skills_required']].copy()
-        display_df.columns = ['Analysis Time', 'Candidate', 'Resume File', 'Score (%)', 'Verdict', 'Skills Matched', 'Total Required']
-        
-        # Format the data for better display
-        display_df['Resume File'] = display_df['Resume File'].apply(lambda x: x if len(str(x)) <= 25 else str(x)[:22] + "...")
-        display_df['Candidate'] = display_df['Candidate'].apply(lambda x: x if len(str(x)) <= 20 else str(x)[:17] + "...")
-        
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Score (%)": st.column_config.ProgressColumn(
-                    "Score (%)",
-                    help="Resume match percentage",
-                    min_value=0,
-                    max_value=100,
-                ),
-                "Analysis Time": st.column_config.DatetimeColumn(
-                    "Analysis Time",
-                    format="DD/MM/YY HH:mm",
-                ),
-            }
-        )
-        
-        # Score distribution chart
-        if len(df) > 1:
-            st.markdown("### 📈 Score Trend")
-            st.line_chart(df.set_index('analysis_time')['score'])
-        
-        # Detailed analysis section
-        st.markdown("### 🔍 Detailed Analysis View")
-        
-        # Allow user to select a specific analysis to view details
-        if len(df) > 0:
-            analysis_options = []
-            for idx, row in df.iterrows():
-                candidate = row.get('candidate_name', 'Unknown')
-                score = row.get('score', 0)
-                analysis_time = row.get('analysis_time', 'Unknown')
-                analysis_options.append(f"{candidate} - {score}% ({analysis_time})")
+            # Ensure candidate_name column exists and is properly populated
+            if 'candidate_name' not in df.columns or df['candidate_name'].isna().any():
+                # For existing results without candidate names, extract from filename
+                for idx, row in df.iterrows():
+                    if pd.isna(row.get('candidate_name')) or row.get('candidate_name') == 'Unknown Candidate':
+                        df.at[idx, 'candidate_name'] = extract_candidate_name_from_filename(row.get('resume_filename', 'Unknown'))
             
-            selected_analysis = st.selectbox(
-                "Select analysis to view details:",
-                options=range(len(analysis_options)),
-                format_func=lambda x: analysis_options[x],
-                key="analysis_selector"
-            )
+            col1, col2, col3, col4 = st.columns(4)
             
-            if selected_analysis is not None:
-                selected_row = df.iloc[selected_analysis]
+            with col1:
+                st.metric("Total Analyses", len(df))
+            with col2:
+                avg_score = df['score'].mean() if 'score' in df.columns else 0
+                st.metric("Average Score", f"{avg_score:.1f}%")
+            with col3:
+                high_scores = len(df[df['score'] >= 70]) if 'score' in df.columns else 0
+                st.metric("High Scores", f"{high_scores}")
+            with col4:
+                recent_score = df.iloc[-1]['score'] if not df.empty and 'score' in df.columns else 0
+                st.metric("Latest Score", f"{recent_score}%")
+            
+            # Top candidates section
+            st.markdown("### 🏆 Top Performing Candidates")
+            if len(df) >= 3 and 'score' in df.columns:
+                top_candidates = df.nlargest(3, 'score')[['candidate_name', 'score', 'verdict', 'analysis_time']]
                 
-                # Display detailed info in expandable sections
-                with st.expander("📄 Analysis Details", expanded=False):
-                    col_detail1, col_detail2 = st.columns(2)
+                cols = st.columns(3)
+                for idx, (_, candidate) in enumerate(top_candidates.iterrows()):
+                    with cols[idx]:
+                        rank_emoji = ["🥇", "🥈", "🥉"][idx]
+                        candidate_name = candidate.get('candidate_name', 'Unknown')
+                        score = candidate.get('score', 0)
+                        verdict = candidate.get('verdict', 'Unknown')
+                        analysis_time = candidate.get('analysis_time', 'Unknown')
+                        
+                        st.markdown(f"""
+                        <div style="
+                            padding: 15px; 
+                            border-radius: 10px; 
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            color: white;
+                            text-align: center;
+                            margin: 5px 0;
+                        ">
+                            <h3>{rank_emoji} Rank {idx + 1}</h3>
+                            <h4>{candidate_name}</h4>
+                            <h2>{score}%</h2>
+                            <p>{verdict}</p>
+                            <small>{analysis_time}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+            else:
+                st.info("Need at least 3 analyses to show top candidates")
+            
+            # Results table
+            st.markdown("### 📋 Analysis History")
+            
+            # Check if we have the required columns for the table
+            required_columns = ['analysis_time', 'candidate_name', 'resume_filename', 'score', 'verdict']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            
+            if missing_columns:
+                st.error(f"Missing required columns in data: {', '.join(missing_columns)}")
+                st.info("Please run a new analysis to populate the dashboard properly.")
+            else:
+                # Prepare display dataframe with safe column access
+                available_columns = ['analysis_time', 'candidate_name', 'resume_filename', 'score', 'verdict']
+                if 'skills_matched' in df.columns:
+                    available_columns.append('skills_matched')
+                if 'total_skills_required' in df.columns:
+                    available_columns.append('total_skills_required')
+                
+                display_df = df[available_columns].copy()
+                
+                # Rename columns for display
+                column_names = ['Analysis Time', 'Candidate', 'Resume File', 'Score (%)', 'Verdict']
+                if 'skills_matched' in available_columns:
+                    column_names.append('Skills Matched')
+                if 'total_skills_required' in available_columns:
+                    column_names.append('Total Required')
+                
+                display_df.columns = column_names
+                
+                # Format the data for better display
+                if 'Resume File' in display_df.columns:
+                    display_df['Resume File'] = display_df['Resume File'].apply(lambda x: x if len(str(x)) <= 25 else str(x)[:22] + "...")
+                if 'Candidate' in display_df.columns:
+                    display_df['Candidate'] = display_df['Candidate'].apply(lambda x: x if len(str(x)) <= 20 else str(x)[:17] + "...")
+                
+                st.dataframe(
+                    display_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Score (%)": st.column_config.ProgressColumn(
+                            "Score (%)",
+                            help="Resume match percentage",
+                            min_value=0,
+                            max_value=100,
+                        ),
+                        "Analysis Time": st.column_config.DatetimeColumn(
+                            "Analysis Time",
+                            format="DD/MM/YY HH:mm",
+                        ),
+                    }
+                )
+            
+            # Score distribution chart
+            if len(df) > 1 and 'score' in df.columns:
+                st.markdown("### 📈 Score Trend")
+                st.line_chart(df.set_index('analysis_time')['score'])
+            
+            # Detailed analysis section
+            st.markdown("### 🔍 Detailed Analysis View")
+            
+            # Allow user to select a specific analysis to view details
+            if len(df) > 0:
+                analysis_options = []
+                for idx, row in df.iterrows():
+                    candidate = row.get('candidate_name', 'Unknown')
+                    score = row.get('score', 0)
+                    analysis_time = row.get('analysis_time', 'Unknown')
+                    analysis_options.append(f"{candidate} - {score}% ({analysis_time})")
+                
+                selected_analysis = st.selectbox(
+                    "Select analysis to view details:",
+                    options=range(len(analysis_options)),
+                    format_func=lambda x: analysis_options[x],
+                    key="analysis_selector"
+                )
+                
+                if selected_analysis is not None:
+                    selected_row = df.iloc[selected_analysis]
                     
-                    with col_detail1:
-                        st.markdown(f"**👤 Candidate:** {selected_row.get('candidate_name', 'Unknown')}")
-                        st.markdown(f"**📄 Resume:** {selected_row.get('resume_filename', 'Unknown')}")
-                        st.markdown(f"**📋 Job Description:** {selected_row.get('jd_filename', 'Unknown')}")
-                        st.markdown(f"**📅 Analysis Date:** {selected_row.get('analysis_time', 'Unknown')}")
+                    # Display detailed info in expandable sections
+                    with st.expander("📄 Analysis Details", expanded=False):
+                        col_detail1, col_detail2 = st.columns(2)
+                        
+                        with col_detail1:
+                            st.markdown(f"**👤 Candidate:** {selected_row.get('candidate_name', 'Unknown')}")
+                            st.markdown(f"**📄 Resume:** {selected_row.get('resume_filename', 'Unknown')}")
+                            st.markdown(f"**📋 Job Description:** {selected_row.get('jd_filename', 'Unknown')}")
+                            st.markdown(f"**📅 Analysis Date:** {selected_row.get('analysis_time', 'Unknown')}")
+                        
+                        with col_detail2:
+                            st.markdown(f"**🎯 Score:** {selected_row.get('score', 0)}%")
+                            st.markdown(f"**📊 Verdict:** {selected_row.get('verdict', 'Unknown')}")
+                            st.markdown(f"**✅ Skills Matched:** {selected_row.get('skills_matched', 0)}")
+                            st.markdown(f"**📋 Total Required:** {selected_row.get('total_skills_required', 0)}")
                     
-                    with col_detail2:
-                        st.markdown(f"**🎯 Score:** {selected_row.get('score', 0)}%")
-                        st.markdown(f"**📊 Verdict:** {selected_row.get('verdict', 'Unknown')}")
-                        st.markdown(f"**✅ Skills Matched:** {selected_row.get('skills_matched', 0)}")
-                        st.markdown(f"**📋 Total Required:** {selected_row.get('total_skills_required', 0)}")
-                
-                # Show matched and missing skills if available
-                if selected_row.get('matched_skills'):
-                    with st.expander("✅ Matched Skills", expanded=False):
-                        matched_skills = selected_row.get('matched_skills', [])
-                        if matched_skills:
-                            skills_text = " • ".join([f"`{skill}`" for skill in matched_skills])
-                            st.markdown(skills_text)
-                        else:
-                            st.info("No matched skills recorded")
-                
-                if selected_row.get('missing_skills'):
-                    with st.expander("❌ Missing Skills", expanded=False):
-                        missing_skills = selected_row.get('missing_skills', [])
-                        if missing_skills:
-                            skills_text = " • ".join([f"`{skill}`" for skill in missing_skills])
-                            st.markdown(skills_text)
-                        else:
-                            st.info("No missing skills recorded")
+                    # Show matched and missing skills if available
+                    if selected_row.get('matched_skills'):
+                        with st.expander("✅ Matched Skills", expanded=False):
+                            matched_skills = selected_row.get('matched_skills', [])
+                            if matched_skills:
+                                skills_text = " • ".join([f"`{skill}`" for skill in matched_skills])
+                                st.markdown(skills_text)
+                            else:
+                                st.info("No matched skills recorded")
+                    
+                    if selected_row.get('missing_skills'):
+                        with st.expander("❌ Missing Skills", expanded=False):
+                            missing_skills = selected_row.get('missing_skills', [])
+                            if missing_skills:
+                                skills_text = " • ".join([f"`{skill}`" for skill in missing_skills])
+                                st.markdown(skills_text)
+                            else:
+                                st.info("No missing skills recorded")
         
         # Clear history button
         if st.button("🗑️ Clear History"):
+            # Clear session state
             st.session_state.results = []
+            
+            # Also clear database if available
+            if DATABASE_AVAILABLE:
+                try:
+                    db_manager.clear_all_data(confirm=True)
+                    st.success("✅ All history cleared from database!")
+                except Exception as e:
+                    st.error(f"Error clearing database: {e}")
+            else:
+                st.success("✅ Session history cleared!")
+            
             st.rerun()
             
     else:
@@ -589,6 +679,7 @@ with st.sidebar:
     - 📈 Track your progress
     """)
     
+    
     if st.session_state.analysis_done:
         st.markdown("---")
         st.markdown("### 📢 Quick Stats")
@@ -615,4 +706,3 @@ with st.sidebar:
                 if len(jd_name) > 20:
                     jd_name = jd_name[:17] + "..."
                 st.markdown(f"📋 **Job Desc:** {jd_name}")
-   

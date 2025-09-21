@@ -62,32 +62,6 @@ def extract_text(file):
         print(f"Error extracting text from {filename}: {e}")
         return ""
 
-def extract_candidate_name_from_text(resume_text):
-    """Extract candidate name from resume text - optimized version"""
-    if not resume_text:
-        return None
-    
-    lines = resume_text.split('\n')
-    # Check only first 3 lines for performance
-    first_lines = [line.strip() for line in lines[:3] if line.strip()]
-    
-    # Simplified patterns for faster processing
-    name_pattern = r'^([A-Z][a-z]+(?: [A-Z][a-z]+){1,2})'
-    
-    for line in first_lines:
-        # Skip obvious headers
-        if any(word in line.lower() for word in ['resume', 'cv', 'curriculum', '@', 'phone']):
-            continue
-            
-        match = re.search(name_pattern, line)
-        if match:
-            name = match.group(1).strip().title()
-            words = name.split()
-            if 2 <= len(words) <= 3 and 4 <= len(name) <= 30:
-                return name
-    
-    return None
-
 def get_skill_suggestions(skill, category):
     """Generate specific suggestions based on skill and category"""
     suggestions = {
@@ -166,20 +140,15 @@ def match_resume():
         return jsonify({"error": "No files selected"}), 400
     
     try:
-        # Extract text once for both operations
         resume_text = extract_text(resume_file)
         jd_text = extract_text(jd_file)
         
         if not resume_text or not jd_text:
             return jsonify({"error": "Could not extract text from files"}), 400
         
-        # Extract candidate name from resume text
-        candidate_name = extract_candidate_name_from_text(resume_text)
-        
-        # Calculate matching score
         score, verdict, missing_skills, matched_skills, improvement_plan = calculate_score(resume_text, jd_text)
         
-        # Prepare result with candidate name included
+        # Prepare result
         result = {
             "score": score,
             "verdict": verdict,
@@ -192,7 +161,6 @@ def match_resume():
             "jd_filename": jd_file.filename,
             "resume_word_count": len(resume_text.split()),
             "jd_word_count": len(jd_text.split()),
-            "candidate_name": candidate_name,
             "timestamp": datetime.now().isoformat()
         }
         
