@@ -20,7 +20,8 @@ With hiring companies expecting fast and high-quality shortlists, there is a **p
 ## 🛠️ Tools & Technologies
 - **Frontend:** Streamlit  
 - **Backend:** Flask (Deployed on Render)  
-- **Language:** Python   
+- **Language:** Python
+- **DataBase:** SQlite
 - **Deployment:** Streamlit Cloud (frontend), Render (backend)  
 
 ---
