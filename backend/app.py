@@ -5,7 +5,6 @@ import docx
 import re
 from datetime import datetime
 import json
-
 app = Flask(__name__)
 CORS(app)
 
