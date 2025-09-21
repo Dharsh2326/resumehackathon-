@@ -80,9 +80,6 @@ This project is designed as a **web-based Resume Relevance Checker** with a fron
 ---
 
 ## ⚙️ Installation & Setup
-- **Database:** SQLite
-
-# ⚙️ Installation & Setup
 
 #### Clone the repository
 git clone https://github.com/Dharsh2326/resumehackathon.git
